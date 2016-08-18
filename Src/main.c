@@ -32,7 +32,8 @@
   */
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_hal.h"
-#include "cmsis_os.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 /* USER CODE BEGIN Includes */
 
@@ -40,8 +41,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart2;
-
-osThreadId defaultTaskHandle;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
@@ -53,11 +52,11 @@ void SystemClock_Config(void);
 void Error_Handler(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
-void StartDefaultTask(void const * argument);
+void StartDefaultTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
-void StartUartTask(void const * argument);
+void StartUartTask(void *argument);
 
 /* USER CODE END PFP */
 
@@ -102,12 +101,10 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
-  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+  xTaskCreate(StartDefaultTask, "defaultTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  osThreadDef(uartTask, StartUartTask, osPriorityNormal, 0, 128);
-  osThreadCreate(osThread(uartTask), NULL);
+  xTaskCreate(StartUartTask, "uartTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
@@ -116,7 +113,7 @@ int main(void)
  
 
   /* Start scheduler */
-  osKernelStart();
+  vTaskStartScheduler();
   
   /* We should never get here as control is now taken by the scheduler */
 
@@ -235,20 +232,20 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 /* StartUartTask function */
-void StartUartTask(void const * argument)
+void StartUartTask(void *argument)
 {
   /* Infinite loop */
   for(;;)
   {
-    HAL_UART_Transmit(&huart2, "Hello!\r\n", 8, 200);
-    osDelay(500);
+    HAL_UART_Transmit(&huart2, (uint8_t *)"Hello!\r\n", 8, 200);
+    vTaskDelay(500 / portTICK_PERIOD_MS);
   }
 }
 
 /* USER CODE END 4 */
 
 /* StartDefaultTask function */
-void StartDefaultTask(void const * argument)
+void StartDefaultTask(void *argument)
 {
 
   /* USER CODE BEGIN 5 */
@@ -256,7 +253,7 @@ void StartDefaultTask(void const * argument)
   for(;;)
   {
     HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-    osDelay(1000);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
   /* USER CODE END 5 */ 
 }
