@@ -57,6 +57,7 @@ void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
+void StartUartTask(void const * argument);
 
 /* USER CODE END PFP */
 
@@ -105,7 +106,8 @@ int main(void)
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
+  osThreadDef(uartTask, StartUartTask, osPriorityNormal, 0, 128);
+  osThreadCreate(osThread(uartTask), NULL);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
@@ -232,6 +234,16 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/* StartUartTask function */
+void StartUartTask(void const * argument)
+{
+  /* Infinite loop */
+  for(;;)
+  {
+    HAL_UART_Transmit(&huart2, "Hello!\r\n", 8, 200);
+    osDelay(500);
+  }
+}
 
 /* USER CODE END 4 */
 
