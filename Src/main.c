@@ -67,6 +67,7 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 void StartUartTask(void *argument);
+void StartPwmTask(void *argument);
 
 /* USER CODE END PFP */
 
@@ -118,6 +119,7 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_THREADS */
   xTaskCreate(StartUartTask, "uartTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
+  xTaskCreate(StartPwmTask, "pwmTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
@@ -232,9 +234,9 @@ static void MX_TIM3_Init(void)
   TIM_OC_InitTypeDef sConfigOC;
 
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 40000;
+  htim3.Init.Prescaler = 8399;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 500;
+  htim3.Init.Period = 499;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
   {
@@ -249,7 +251,7 @@ static void MX_TIM3_Init(void)
   }
 
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = 200;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
@@ -331,6 +333,18 @@ void StartUartTask(void *argument)
   {
     HAL_UART_Transmit(&huart2, (uint8_t *)"Hello!\r\n", 8, 200);
     vTaskDelay(500 / portTICK_PERIOD_MS);
+  }
+}
+
+/* StartPwmTask function */
+void StartPwmTask(void *argument)
+{
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+
+  /* Infinite loop */
+  for(;;)
+  {
+    vTaskDelay(10000 / portTICK_PERIOD_MS);
   }
 }
 
