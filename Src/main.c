@@ -48,8 +48,10 @@ UART_HandleTypeDef huart2;
 osThreadId defaultTaskHandle;
 
 /* USER CODE BEGIN PV */
+#define M_LOG_LENGTH        (20)
+#define M_LOG_NUM           (10)
 /* Private variables ---------------------------------------------------------*/
-
+static xQueueHandle         mLogQueueHdl;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -120,14 +122,14 @@ int main(void)
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  //xTaskCreate(StartUartTask, "uartTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
+  xTaskCreate(StartUartTask, "uartTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
   xTaskCreate(StartSwTask, "swTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
   xTaskCreate(StartVolTask, "volTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
   //xTaskCreate(StartMotorTask, "motorTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
+  mLogQueueHdl = xQueueCreate(M_LOG_NUM, M_LOG_LENGTH);
   /* USER CODE END RTOS_QUEUES */
  
 
@@ -326,11 +328,13 @@ static void MX_GPIO_Init(void)
 /* StartUartTask function */
 void StartUartTask(void *argument)
 {
+  char  str[M_LOG_LENGTH];
+
   /* Infinite loop */
   for(;;)
   {
-    HAL_UART_Transmit(&huart2, (uint8_t *)"Hello!\r\n", 8, 200);
-    vTaskDelay(500 / portTICK_PERIOD_MS);
+    xQueueReceive(mLogQueueHdl, str, portMAX_DELAY);
+    HAL_UART_Transmit(&huart2, (uint8_t *)str, strlen(str), 200);
   }
 }
 
@@ -368,9 +372,9 @@ void StartVolTask(void *argument)
     
     //proc
     uint32_t val = HAL_ADC_GetValue(&hadc1) >> 2;
-    char str[10];
+    char str[M_LOG_LENGTH];
     sprintf(str, "%ld\r\n", val);
-    HAL_UART_Transmit(&huart2, (uint8_t *)str, strlen(str), 200);
+    xQueueSend(mLogQueueHdl, str, portMAX_DELAY);
   }
 }
 
