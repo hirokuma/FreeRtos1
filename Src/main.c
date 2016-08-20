@@ -35,6 +35,7 @@
 #include "cmsis_os.h"
 
 /* USER CODE BEGIN Includes */
+#include <stdlib.h>
 #include <string.h>
 /* USER CODE END Includes */
 
@@ -50,8 +51,12 @@ osThreadId defaultTaskHandle;
 /* USER CODE BEGIN PV */
 #define M_LOG_LENGTH        (20)
 #define M_LOG_NUM           (10)
+#define M_MOTOR_LENGTH      (1)   //b7...0:sw, 1:vol
+#define M_MOTOR_NUM         (10)
 /* Private variables ---------------------------------------------------------*/
 static xQueueHandle         mLogQueueHdl;
+static xQueueHandle         mMotorQueueHdl;
+static TIM_OC_InitTypeDef   mPwmConfig;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -125,11 +130,12 @@ int main(void)
   xTaskCreate(StartUartTask, "uartTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
   xTaskCreate(StartSwTask, "swTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
   xTaskCreate(StartVolTask, "volTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
-  //xTaskCreate(StartMotorTask, "motorTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
+  xTaskCreate(StartMotorTask, "motorTask", 128, (void *)NULL, tskIDLE_PRIORITY, NULL);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
   mLogQueueHdl = xQueueCreate(M_LOG_NUM, M_LOG_LENGTH);
+  mMotorQueueHdl = xQueueCreate(M_MOTOR_NUM, M_MOTOR_LENGTH);
   /* USER CODE END RTOS_QUEUES */
  
 
@@ -264,6 +270,9 @@ static void MX_TIM3_Init(void)
   {
     Error_Handler();
   }
+/* USER CODE BEGIN PWM */
+  mPwmConfig = sConfigOC;
+/* USER CODE END PWM */
 
   HAL_TIM_MspPostInit(&htim3);
 
@@ -312,15 +321,31 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LD2_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin;
+  /*Configure GPIO pins : LD2_Pin PA10 */
+  GPIO_InitStruct.Pin = LD2_Pin|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PB4 PB5 */
+  GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_5;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_10, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
 
 }
 
@@ -341,8 +366,16 @@ void StartUartTask(void *argument)
 /* SwTask function */
 void StartSwTask(void *argument)
 {
-  TickType_t xLastWakeTime;
   const TickType_t xFrequency = 10;
+  const int SW_SET = 5;
+
+  TickType_t xLastWakeTime;
+  GPIO_PinState prevSw1 = GPIO_PIN_RESET;
+  GPIO_PinState prevSw2 = GPIO_PIN_RESET;
+  int cntSw1 = 0;
+  int cntSw2 = 0;
+  char str[M_LOG_LENGTH];
+  uint8_t swval = 0;        //b0:ONOFF  b1:DIR
 
   xLastWakeTime = xTaskGetTickCount();
 
@@ -351,15 +384,66 @@ void StartSwTask(void *argument)
   {
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
     
-    //proc
+    //
+    GPIO_PinState sw1 = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_4);
+    GPIO_PinState sw2 = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_5);
+    
+    int valset = 0;
+
+    if (sw1 == GPIO_PIN_SET) {
+      if (prevSw1 == GPIO_PIN_SET) {
+        cntSw1++;
+        if (cntSw1 == SW_SET) {
+          swval ^= 1;   //b0
+          cntSw1 = SW_SET + 1;
+          valset = 1;
+        }
+      }
+      else {
+        prevSw1 = GPIO_PIN_SET;
+        cntSw1 = 0;
+      }
+    }
+    else {
+        prevSw1 = GPIO_PIN_RESET;
+    }
+
+    if (sw2 == GPIO_PIN_SET) {
+      if (prevSw2 == GPIO_PIN_SET) {
+        cntSw2++;
+        if (cntSw2 == SW_SET) {
+          swval ^= 2;   //b1
+          cntSw2 = SW_SET + 1;
+          valset = 1;
+        }
+      }
+      else {
+        prevSw2 = GPIO_PIN_SET;
+        cntSw2 = 0;
+      }
+    }
+    else {
+      prevSw2 = GPIO_PIN_RESET;
+    }
+
+    if (valset != 0) {
+      //
+      sprintf(str, "SW:%x\r\n", swval);
+      xQueueSend(mLogQueueHdl, str, portMAX_DELAY);
+      xQueueSend(mMotorQueueHdl, &swval, portMAX_DELAY);
+    }
   }
 }
 
 /* VolTask function */
 void StartVolTask(void *argument)
 {
-  TickType_t xLastWakeTime;
+  const int HIST = 3;
   const TickType_t xFrequency = 1000;
+
+  TickType_t xLastWakeTime;
+  uint8_t volval = 0xff;
+  char str[M_LOG_LENGTH];
 
   xLastWakeTime = xTaskGetTickCount();
 
@@ -371,22 +455,86 @@ void StartVolTask(void *argument)
     vTaskDelayUntil(&xLastWakeTime, xFrequency);
     
     //proc
-    uint32_t val = HAL_ADC_GetValue(&hadc1) >> 2;
-    char str[M_LOG_LENGTH];
-    sprintf(str, "%ld\r\n", val);
-    xQueueSend(mLogQueueHdl, str, portMAX_DELAY);
+    uint8_t val = HAL_ADC_GetValue(&hadc1) >> 5;   //12bit --> 7bit
+    if (abs(val - volval) >= HIST) {
+      sprintf(str, "%d\r\n", val);
+      xQueueSend(mLogQueueHdl, str, portMAX_DELAY);
+      volval = val;
+      val |= 0x80;  //b7=1
+      xQueueSend(mMotorQueueHdl, &val, portMAX_DELAY);
+    }
   }
 }
 
 /* MotorTask function */
 void StartMotorTask(void *argument)
 {
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+  uint8_t onoff = 0;
+  uint8_t dir = 0;
+  uint8_t vol = 0;
+  uint8_t val;
+  char str[M_LOG_LENGTH] = {0};
 
   /* Infinite loop */
   for(;;)
   {
-    //proc
+    xQueueReceive(mMotorQueueHdl, &val, portMAX_DELAY);
+
+    uint8_t new_onoff = onoff;
+    uint8_t new_dir = dir;
+    uint8_t new_vol = vol;
+
+//    sprintf(str, "stat:%d:%d:%d\r\n", onoff, dir, vol);
+//    xQueueSend(mLogQueueHdl, str, portMAX_DELAY);
+
+    if (val & 0x80) {
+      //volume
+      new_vol = val & 0x7f;
+    }
+    else {
+      //sw
+      new_onoff = val & 0x01;
+      new_dir = (val & 0x02) ? 1 : 0;
+    }
+
+    if (new_onoff) {
+      if ((new_onoff != onoff) || (new_vol != vol)) {
+        //ONになったか、ONのまま
+        sprintf(str, "Motor:ON\r\n");
+        xQueueSend(mLogQueueHdl, str, portMAX_DELAY);
+
+        mPwmConfig.Pulse = 500 * new_vol / 0x80;
+        HAL_TIM_PWM_ConfigChannel(&htim3, &mPwmConfig, TIM_CHANNEL_2);
+        HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+      }
+      if (new_dir) {
+        sprintf(str, "Motor:DIR2\r\n");
+        xQueueSend(mLogQueueHdl, str, portMAX_DELAY);
+        HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_10, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
+      }
+      else {
+        sprintf(str, "Motor:DIR1\r\n");
+        xQueueSend(mLogQueueHdl, str, portMAX_DELAY);
+        HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_10, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_SET);
+      }
+    }
+    else {
+      if (new_onoff != onoff) {
+        //OFFになった
+        sprintf(str, "Motor:OFF\r\n");
+        xQueueSend(mLogQueueHdl, str, portMAX_DELAY);
+        HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_2);
+      }
+    }
+
+    onoff = new_onoff;
+    dir = new_dir;
+    vol = new_vol;
+//    sprintf(str, "new stat:%d:%d:%d\r\n", onoff, dir, vol);
+//    xQueueSend(mLogQueueHdl, str, portMAX_DELAY);
+
   }
 }
 
